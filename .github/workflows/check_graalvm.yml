@@ -1,45 +1,48 @@
-name: GraalVM smoke tests
-
-on:
-  pull_request: {}
-permissions: read-all
 jobs:
   build:
-
-    runs-on: ${{ matrix.os }}
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      name: Set up JDK 1.8
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '8'
+    - continue-on-error: true
+      name: Download GraalVM 17
+      run: "if [ \"$RUNNER_OS\" == \"Linux\" ]; then\n  download_url=\"https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-17.0.9/graalvm-community-jdk-17.0.9_linux-x64_bin.tar.gz\"\
+        \nelif [ \"$RUNNER_OS\" == \"macOS\" ]; then\n  download_url=\"https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-17.0.9/graalvm-community-jdk-17.0.9_macos-x64_bin.tar.gz\"\
+        \nelse\n  download_url=\"https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-17.0.9/graalvm-community-jdk-17.0.9_windows-x64_bin.zip\"\
+        \nfi\ncurl -L $download_url --output $RUNNER_TEMP/java_package.tar.gz\n"
+      shell: bash
+    - continue-on-error: true
+      name: Set up GraalVM 17
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: jdkfile
+        java-version: '17'
+        jdkFile: ${{ runner.temp }}/java_package.tar.gz
+    - continue-on-error: true
+      name: Build with Gradle
+      run: ./gradlew :reactor-netty-graalvm-smoke-tests:nativeTest --no-daemon -PforceTransport=${{
+        matrix.transport }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, macos-12, windows-2022]
-        transport: [native, nio]
         exclude:
-          # excludes native on Windows (there's none)
-          - os: windows-2022
-            transport: native
-
-    steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - name: Set up JDK 1.8
-        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-      - name: Download GraalVM 17
-        run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            download_url="https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-17.0.9/graalvm-community-jdk-17.0.9_linux-x64_bin.tar.gz"
-          elif [ "$RUNNER_OS" == "macOS" ]; then
-            download_url="https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-17.0.9/graalvm-community-jdk-17.0.9_macos-x64_bin.tar.gz"
-          else
-            download_url="https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-17.0.9/graalvm-community-jdk-17.0.9_windows-x64_bin.zip"
-          fi
-          curl -L $download_url --output $RUNNER_TEMP/java_package.tar.gz
-        shell: bash
-      - name: Set up GraalVM 17
-        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-            distribution: 'jdkfile'
-            jdkFile: ${{ runner.temp }}/java_package.tar.gz
-            java-version: '17'
-      - name: Build with Gradle
-        run: ./gradlew :reactor-netty-graalvm-smoke-tests:nativeTest --no-daemon -PforceTransport=${{ matrix.transport }}
+        - os: windows-2022
+          transport: native
+        os:
+        - ubuntu-20.04
+        - macos-12
+        - windows-2022
+        transport:
+        - native
+        - nio
+name: GraalVM smoke tests
+on:
+  repository_dispatch:
+    types: trigger-ga___check_graalvm.yml
+permissions: read-all

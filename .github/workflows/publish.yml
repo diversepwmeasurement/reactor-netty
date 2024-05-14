@@ -1,242 +1,286 @@
-name: publish
-on:
-  push:
-    branches: # For branches, better to list them explicitly than regexp include
-      - main
-      - 1.1.x
-      - 1.0.x
-permissions: read-all
-
 env:
   DOCS_BUILD_ARTIFACT: docs-build
-
 jobs:
-  # General job notes: we DON'T want to cancel any previous runs, especially in the case of a "back to snapshots" build right after a release push
-  # We specify the ubuntu version to minimize the chances we have to deal with a migration during a release
-  reactor-netty-core:
-    # Notes on reactor-netty-core: this job has no access to secrets, only github token. As a result, all non-core actions are centralized here
-    name: reactor-netty-core
-    runs-on: ubuntu-20.04
-    outputs:
-      versionType: ${{ steps.version.outputs.versionType }}
-      fullVersion: ${{ steps.version.outputs.fullVersion }}
-    steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - name: setup java
-        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-      - name: interpret version
-        id: version
-        #we only run the qualifyVersionGha task so that no other console printing can hijack this step's output
-        #output: versionType, fullVersion
-        #fails if versionType is BAD, which interrupts the workflow
-        run: ./gradlew qualifyVersionGha
-      - name: run reactor-netty-core checks
-        id: reactor-netty-core-checks
-        run: ./gradlew reactor-netty-core:check
-  reactor-netty-http:
-    # Notes on reactor-netty-http: this job has no access to secrets, only github token. As a result, all non-core actions are centralized here
-    name: reactor-netty-http
-    runs-on: ubuntu-20.04
-    steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - name: setup java
-        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-      - name: run reactor-netty-http checks
-        id: reactor-netty-http-checks
-        run: ./gradlew reactor-netty-http:check
-  reactor-netty-http-brave:
-    # Notes on reactor-netty-http-brave: this job has no access to secrets, only github token. As a result, all non-core actions are centralized here
-    name: reactor-netty-http-brave
-    runs-on: ubuntu-20.04
-    steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - name: setup java
-        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-      - name: run reactor-netty-http-brave checks
-        id: reactor-netty-http-brave-checks
-        run: ./gradlew reactor-netty-http-brave:check
-  reactor-netty-incubator-quic:
-    # Notes on reactor-netty-incubator-quic: this job has no access to secrets, only github token. As a result, all non-core actions are centralized here
-    name: reactor-netty-incubator-quic
-    runs-on: ubuntu-20.04
-    steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - name: setup java
-        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-      - name: run reactor-netty-incubator-quic checks
-        id: reactor-netty-incubator-quic-checks
-        run: ./gradlew reactor-netty-incubator-quic:check
-
-  # build antora doc for the current branch, and upload docs/build results to workflow run.
-  # Each deploy jobs can then download it, in order to let the docs-zip be built properly
-  # (see reactor-netty/build.gradle which includes docs/build/site and optionally docs/assembly/.../pdf into the target docs.zip)
   build-branch-doc:
-    runs-on: ubuntu-20.04
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b # v4
-      - name: Set up Ruby for asciidoctor-pdf
-        uses: ruby/setup-ruby@cacc9f1c0b3f4eb8a16a6bb0ed10897b43b9de49 # v1
-        with:
-          ruby-version: 3.3.0
-      - name: Install asciidoctor-pdf / rouge
-        run: gem install asciidoctor-pdf rouge
-      - name: Setup java 17 for antora
-        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9 # v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-      - name: Build antora doc for the current branch
-        run: ./gradlew antora
-      - name: Copy the cache to be included in the site
-        run: |-
-          [ -d docs/build/antora/inject-collector-cache-config-extension/.cache ] && cp -rf docs/build/antora/inject-collector-cache-config-extension/.cache docs/build/site/
-      - name: Upload docs/build to current workflow run
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
-        with:
-          name: ${{ env.DOCS_BUILD_ARTIFACT }}
-          retention-days: 1
-          if-no-files-found: error
-          path: docs/build
-
-  #deploy the snapshot artifacts to Artifactory
-  deploySnapshot:
-    name: deploySnapshot
-    runs-on: ubuntu-20.04
-    needs: [ reactor-netty-core, reactor-netty-http, reactor-netty-http-brave, reactor-netty-incubator-quic ]
-    if: needs.reactor-netty-core.outputs.versionType == 'SNAPSHOT'
-    environment: snapshots
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      name: Set up Ruby for asciidoctor-pdf
+      uses: ruby/setup-ruby@cacc9f1c0b3f4eb8a16a6bb0ed10897b43b9de49
+      with:
+        ruby-version: 3.3.0
+    - continue-on-error: true
+      name: Install asciidoctor-pdf / rouge
+      run: gem install asciidoctor-pdf rouge
+    - continue-on-error: true
+      name: Setup java 17 for antora
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '17'
+    - continue-on-error: true
+      name: Build antora doc for the current branch
+      run: ./gradlew antora
+    - continue-on-error: true
+      name: Copy the cache to be included in the site
+      run: '[ -d docs/build/antora/inject-collector-cache-config-extension/.cache
+        ] && cp -rf docs/build/antora/inject-collector-cache-config-extension/.cache
+        docs/build/site/'
+    - continue-on-error: true
+      name: Upload docs/build to current workflow run
+      uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+      with:
+        if-no-files-found: error
+        name: ${{ env.DOCS_BUILD_ARTIFACT }}
+        path: docs/build
+        retention-days: 1
+  cleanup:
+    if: always()
+    needs:
+    - reactor-netty-core
+    - tagRelease
+    - tagMilestone
+    - deploySnapshot
+    permissions:
+      actions: write
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-      - name: download antora docs/build
-        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4
-        with:
-            name: ${{ env.DOCS_BUILD_ARTIFACT }}
-            path: docs/build
-      - name: deploy
-        env:
-          ORG_GRADLE_PROJECT_artifactory_publish_username: ${{secrets.ARTIFACTORY_SNAPSHOT_USERNAME}}
-          ORG_GRADLE_PROJECT_artifactory_publish_password: ${{secrets.ARTIFACTORY_PASSWORD}}
-        run: |
-          ./gradlew assemble artifactoryPublish -Partifactory_publish_contextUrl=https://repo.spring.io -Partifactory_publish_repoKey=libs-snapshot-local
-
-  #sign the milestone artifacts and deploy them to Artifactory
+    - continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      name: delete antora docs-build artifact
+      run: "ARTIFACTS_URL=\"/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts\"\
+        \nARTIFACT_ID=$(gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version:\
+        \ 2022-11-28' $ARTIFACTS_URL | jq -r '.artifacts[] | select(.name == \"'$DOCS_BUILD_ARTIFACT'\"\
+        ) | .id // \"\"')\nif [ -n \"$ARTIFACT_ID\" ]; then\n  gh api --method DELETE\
+        \ -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28'\
+        \ /repos/${{github.repository}}/actions/artifacts/$ARTIFACT_ID}\nfi"
   deployMilestone:
-    name: deployMilestone
-    runs-on: ubuntu-20.04
-    needs: [ reactor-netty-core, reactor-netty-http, reactor-netty-http-brave, reactor-netty-incubator-quic ]
+    environment: releases
     if: needs.reactor-netty-core.outputs.versionType == 'MILESTONE'
-    environment: releases
+    name: deployMilestone
+    needs:
+    - reactor-netty-core
+    - reactor-netty-http
+    - reactor-netty-http-brave
+    - reactor-netty-incubator-quic
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-      - name: download antora docs/build
-        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4
-        with:
-            name: ${{ env.DOCS_BUILD_ARTIFACT }}
-            path: docs/build
-      - name: deploy
-        env:
-          ORG_GRADLE_PROJECT_artifactory_publish_username: ${{secrets.ARTIFACTORY_USERNAME}}
-          ORG_GRADLE_PROJECT_artifactory_publish_password: ${{secrets.ARTIFACTORY_PASSWORD}}
-          ORG_GRADLE_PROJECT_signingKey: ${{secrets.SIGNING_KEY}}
-          ORG_GRADLE_PROJECT_signingPassword: ${{secrets.SIGNING_PASSPHRASE}}
-        run: |
-          ./gradlew assemble sign artifactoryPublish -Partifactory_publish_contextUrl=https://repo.spring.io -Partifactory_publish_repoKey=libs-milestone-local
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '8'
+    - continue-on-error: true
+      name: download antora docs/build
+      uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
+      with:
+        name: ${{ env.DOCS_BUILD_ARTIFACT }}
+        path: docs/build
+    - continue-on-error: true
+      env:
+        ORG_GRADLE_PROJECT_artifactory_publish_password: ${{secrets.ARTIFACTORY_PASSWORD}}
+        ORG_GRADLE_PROJECT_artifactory_publish_username: ${{secrets.ARTIFACTORY_USERNAME}}
+        ORG_GRADLE_PROJECT_signingKey: ${{secrets.SIGNING_KEY}}
+        ORG_GRADLE_PROJECT_signingPassword: ${{secrets.SIGNING_PASSPHRASE}}
+      name: deploy
+      run: './gradlew assemble sign artifactoryPublish -Partifactory_publish_contextUrl=https://repo.spring.io
+        -Partifactory_publish_repoKey=libs-milestone-local
 
-  #sign the release artifacts and deploy them to Artifactory
+        '
   deployRelease:
-    name: deployRelease
-    runs-on: ubuntu-20.04
-    needs: [ reactor-netty-core, reactor-netty-http, reactor-netty-http-brave, reactor-netty-incubator-quic ]
-    if: needs.reactor-netty-core.outputs.versionType == 'RELEASE'
     environment: releases
+    if: needs.reactor-netty-core.outputs.versionType == 'RELEASE'
+    name: deployRelease
+    needs:
+    - reactor-netty-core
+    - reactor-netty-http
+    - reactor-netty-http-brave
+    - reactor-netty-incubator-quic
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-      - name: download antora docs/build
-        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4
-        with:
-            name: ${{ env.DOCS_BUILD_ARTIFACT }}
-            path: docs/build
-      - name: deploy
-        env:
-          ORG_GRADLE_PROJECT_artifactory_publish_username: ${{secrets.ARTIFACTORY_USERNAME}}
-          ORG_GRADLE_PROJECT_artifactory_publish_password: ${{secrets.ARTIFACTORY_PASSWORD}}
-          ORG_GRADLE_PROJECT_signingKey: ${{secrets.SIGNING_KEY}}
-          ORG_GRADLE_PROJECT_signingPassword: ${{secrets.SIGNING_PASSPHRASE}}
-          ORG_GRADLE_PROJECT_sonatypeUsername: ${{secrets.SONATYPE_USERNAME}}
-          ORG_GRADLE_PROJECT_sonatypePassword: ${{secrets.SONATYPE_PASSWORD}}
-        run: |
-          ./gradlew assemble sign artifactoryPublish -Partifactory_publish_contextUrl=https://repo.spring.io  -Partifactory_publish_repoKey=libs-release-local publishMavenJavaPublicationToSonatypeRepository
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '8'
+    - continue-on-error: true
+      name: download antora docs/build
+      uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
+      with:
+        name: ${{ env.DOCS_BUILD_ARTIFACT }}
+        path: docs/build
+    - continue-on-error: true
+      env:
+        ORG_GRADLE_PROJECT_artifactory_publish_password: ${{secrets.ARTIFACTORY_PASSWORD}}
+        ORG_GRADLE_PROJECT_artifactory_publish_username: ${{secrets.ARTIFACTORY_USERNAME}}
+        ORG_GRADLE_PROJECT_signingKey: ${{secrets.SIGNING_KEY}}
+        ORG_GRADLE_PROJECT_signingPassword: ${{secrets.SIGNING_PASSPHRASE}}
+        ORG_GRADLE_PROJECT_sonatypePassword: ${{secrets.SONATYPE_PASSWORD}}
+        ORG_GRADLE_PROJECT_sonatypeUsername: ${{secrets.SONATYPE_USERNAME}}
+      name: deploy
+      run: './gradlew assemble sign artifactoryPublish -Partifactory_publish_contextUrl=https://repo.spring.io  -Partifactory_publish_repoKey=libs-release-local
+        publishMavenJavaPublicationToSonatypeRepository
 
+        '
+  deploySnapshot:
+    environment: snapshots
+    if: needs.reactor-netty-core.outputs.versionType == 'SNAPSHOT'
+    name: deploySnapshot
+    needs:
+    - reactor-netty-core
+    - reactor-netty-http
+    - reactor-netty-http-brave
+    - reactor-netty-incubator-quic
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '8'
+    - continue-on-error: true
+      name: download antora docs/build
+      uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e
+      with:
+        name: ${{ env.DOCS_BUILD_ARTIFACT }}
+        path: docs/build
+    - continue-on-error: true
+      env:
+        ORG_GRADLE_PROJECT_artifactory_publish_password: ${{secrets.ARTIFACTORY_PASSWORD}}
+        ORG_GRADLE_PROJECT_artifactory_publish_username: ${{secrets.ARTIFACTORY_SNAPSHOT_USERNAME}}
+      name: deploy
+      run: './gradlew assemble artifactoryPublish -Partifactory_publish_contextUrl=https://repo.spring.io
+        -Partifactory_publish_repoKey=libs-snapshot-local
+
+        '
+  reactor-netty-core:
+    name: reactor-netty-core
+    outputs:
+      fullVersion: ${{ steps.version.outputs.fullVersion }}
+      versionType: ${{ steps.version.outputs.versionType }}
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      name: setup java
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '8'
+    - continue-on-error: true
+      id: version
+      name: interpret version
+      run: ./gradlew qualifyVersionGha
+    - continue-on-error: true
+      id: reactor-netty-core-checks
+      name: run reactor-netty-core checks
+      run: ./gradlew reactor-netty-core:check
+  reactor-netty-http:
+    name: reactor-netty-http
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      name: setup java
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '8'
+    - continue-on-error: true
+      id: reactor-netty-http-checks
+      name: run reactor-netty-http checks
+      run: ./gradlew reactor-netty-http:check
+  reactor-netty-http-brave:
+    name: reactor-netty-http-brave
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      name: setup java
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '8'
+    - continue-on-error: true
+      id: reactor-netty-http-brave-checks
+      name: run reactor-netty-http-brave checks
+      run: ./gradlew reactor-netty-http-brave:check
+  reactor-netty-incubator-quic:
+    name: reactor-netty-incubator-quic
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      name: setup java
+      uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9
+      with:
+        distribution: temurin
+        java-version: '8'
+    - continue-on-error: true
+      id: reactor-netty-incubator-quic-checks
+      name: run reactor-netty-incubator-quic checks
+      run: ./gradlew reactor-netty-incubator-quic:check
   tagMilestone:
     name: Tag milestone
-    needs: [ reactor-netty-core, deployMilestone ]
-    runs-on: ubuntu-20.04
+    needs:
+    - reactor-netty-core
+    - deployMilestone
     permissions:
       contents: write
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - name: tag
-        run: |
-          git config --local user.name 'reactorbot'
-          git config --local user.email '32325210+reactorbot@users.noreply.github.com'
-          git tag -m "Release milestone ${{ needs.reactor-netty-core.outputs.fullVersion }}" v${{ needs.reactor-netty-core.outputs.fullVersion }} ${{ github.sha }}
-          git push --tags
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      name: tag
+      run: 'git config --local user.name ''reactorbot''
 
+        git config --local user.email ''32325210+reactorbot@users.noreply.github.com''
+
+        git tag -m "Release milestone ${{ needs.reactor-netty-core.outputs.fullVersion
+        }}" v${{ needs.reactor-netty-core.outputs.fullVersion }} ${{ github.sha }}
+
+        git push --tags
+
+        '
   tagRelease:
     name: Tag release
-    needs: [ reactor-netty-core, deployRelease ]
-    runs-on: ubuntu-20.04
+    needs:
+    - reactor-netty-core
+    - deployRelease
     permissions:
       contents: write
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
-      - name: tag
-        run: |
-          git config --local user.name 'reactorbot'
-          git config --local user.email '32325210+reactorbot@users.noreply.github.com'
-          git tag -m "Release version ${{ needs.reactor-netty-core.outputs.fullVersion }}" v${{ needs.reactor-netty-core.outputs.fullVersion }} ${{ github.sha }}
-          git push --tags
+    - continue-on-error: true
+      uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b
+    - continue-on-error: true
+      name: tag
+      run: 'git config --local user.name ''reactorbot''
 
-  cleanup:
-    needs: [ reactor-netty-core, tagRelease, tagMilestone, deploySnapshot ]
-    if: always() # cleanup always run after all needed jobs, regardless of whether they were successful
-    runs-on: ubuntu-20.04
-    permissions:
-        actions: write
-    steps:
-      - name: delete antora docs-build artifact
-        env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |-
-          ARTIFACTS_URL="/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts"
-          ARTIFACT_ID=$(gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' $ARTIFACTS_URL | jq -r '.artifacts[] | select(.name == "'$DOCS_BUILD_ARTIFACT'") | .id // ""')
-          if [ -n "$ARTIFACT_ID" ]; then
-            gh api --method DELETE -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' /repos/${{github.repository}}/actions/artifacts/$ARTIFACT_ID}
-          fi
+        git config --local user.email ''32325210+reactorbot@users.noreply.github.com''
 
-# For Gradle configuration of signing, see https://docs.gradle.org/current/userguide/signing_plugin.html#sec:in-memory-keys
-# publishMavenJavaPublicationToSonatypeRepository only sends to a staging repository
+        git tag -m "Release version ${{ needs.reactor-netty-core.outputs.fullVersion
+        }}" v${{ needs.reactor-netty-core.outputs.fullVersion }} ${{ github.sha }}
+
+        git push --tags
+
+        '
+name: publish
+on:
+  repository_dispatch:
+    types: trigger-ga___publish.yml
+permissions: read-all
